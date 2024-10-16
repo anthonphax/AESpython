@@ -17,8 +17,10 @@ def texto_para_hex(texto):
     hex_resultado = ''.join(format(ord(caractere), '02x') for caractere in texto)
     return hex_resultado
 
-plaintext_bytes = texto_para_hex(plaintext)
-key_bytes = texto_para_hex(key)
+plaintext_bytes = hex_to_bytes(plaintext)
+key_bytes = hex_to_bytes(key)
+
+print(plaintext_bytes, key_bytes)
 
 SBOX = [
     [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76],
@@ -95,8 +97,9 @@ def s_box_subtituicao(state):
         for j in range(4): #coluna
             row = (int(state[i][j]) >> 4) & 0x0F #primeiro nibble do byte
             col = int(state[i][j]) & 0x0F #segundo nibble do byte
-            print(state[i][j]) #debug
-            state[i][j] = int(state[i][j])
+            print(state, type (state), "da rodada", state[i][j]) #debug
+            state = int(state)
+            state[i][j] = float(state[i][j])
             state[i][j] = SBOX[row][col]
     return state
 
@@ -182,5 +185,5 @@ def aes_encrypt(plaintext, key):
     return state
 
 
-ciphertext = aes_encrypt(plaintext_bytes, key_bytes)
+ciphertext = aes_encrypt(plaintext, key)
 print("Ciphertext:", ciphertext)
