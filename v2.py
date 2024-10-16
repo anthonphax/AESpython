@@ -7,6 +7,18 @@ QT_BLOCOS = 4
 KEY_STR_LENGTH = 32
 RODADAS = 10
 
+plaintext = "0123456789abcdeffedcba9876543210"
+key = "0f1571c947d9e8590cb7add6af7f6798"
+
+def hex_to_bytes(hex_string):
+    return [int(hex_string[i:i+2], 16) for i in range(0, len(hex_string), 2)]
+
+def texto_para_hex(texto):
+    hex_resultado = ''.join(format(ord(caractere), '02x') for caractere in texto)
+    return hex_resultado
+
+plaintext_bytes = texto_para_hex(plaintext)
+key_bytes = texto_para_hex(key)
 
 SBOX = [
     [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76],
@@ -26,7 +38,6 @@ SBOX = [
     [0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94, 0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF],
     [0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16],
 ]
-
 
 MULTIPLY2 = [
     [0x00, 0x02, 0x04, 0x06, 0x08, 0x0a, 0x0c, 0x0e, 0x10, 0x12, 0x14, 0x16, 0x18, 0x1a, 0x1c, 0x1e],
@@ -79,69 +90,60 @@ RCON_TABLE = [
     [0x36, 0x00, 0x00, 0x00]
 ]
 
-
-
-
-# Função para substituir bytes usando a S-Box
-def sub_bytes(state):
-    for i in range(4):
-        for j in range(4):
-            row = (state[i][j] >> 4) & 0x0F
-            col = state[i][j] & 0x0F
+def s_box_subtituicao(state):
+    for i in range(4): #linha
+        for j in range(4): #coluna
+            row = (int(state[i][j]) >> 4) & 0x0F #primeiro nibble do byte
+            col = int(state[i][j]) & 0x0F #segundo nibble do byte
+            print(state[i][j]) #debug
+            state[i][j] = int(state[i][j])
             state[i][j] = SBOX[row][col]
     return state
 
-# Função para aplicar deslocamento das linhas
-def shift_rows(state):
-    # Rotacionar cada linha
-    state[1] = state[1][1:] + state[1][:1]
-    state[2] = state[2][2:] + state[2][:2]
-    state[3] = state[3][3:] + state[3][:3]
+def rotaciona_palavra(word):
+    return word[1:] + word[:1]
 
-# Função de mistura de colunas
-def mix_columns(state):
-    for j in range(4):
-        # Collect the column values
-        a = [state[i][j] for i in range(4)]
-        
-        # Perform the mixing operation
-        state[0][j] = MULTIPLY2[a[0]] ^ MULTIPLY3[a[1]] ^ a[2] ^ a[3]
-        state[1][j] = a[0] ^ MULTIPLY2[a[1]] ^ MULTIPLY3[a[2]] ^ a[3]
-        state[2][j] = a[0] ^ a[1] ^ MULTIPLY2[a[2]] ^ MULTIPLY3[a[3]]
-        state[3][j] = MULTIPLY3[a[0]] ^ a[1] ^ a[2] ^ MULTIPLY2[a[3]]
-
-# Expansão da chave
-def key_expansion(key):
+def expansao_chave(key):
     key_schedule = []
     i = 0
-    
-    # Fill the initial key
+    # padding chave inicial
     while i < QT_BLOCOS:
         key_schedule.append(key[i * 4:(i + 1) * 4])
         i += 1
     
     i = QT_BLOCOS
-    
-    # Expand the key
+
     while i < 4 * (RODADAS + 1):
         temp = key_schedule[i - 1]
 
         if i % QT_BLOCOS == 0:
-            temp = sub_word(rot_word(temp))
+
+            print(type(temp), type(rotaciona_palavra(temp))) #debug
+
+            temp = s_box_subtituicao(rotaciona_palavra(temp))
             rcon_index = (i // QT_BLOCOS) - 1
             temp = [temp[j] ^ RCON_TABLE[rcon_index][j] for j in range(4)]
         
         key_schedule.append([key_schedule[i - QT_BLOCOS][j] ^ temp[j] for j in range(4)])
         i += 1
-    
     return key_schedule
 
-# Funções auxiliares
-def rot_word(word):
-    return word[1:] + word[:1]
+def rotaciona_linhas(state):
+    state[1] = state[1][1:] + state[1][:1]
+    state[2] = state[2][2:] + state[2][:2]
+    state[3] = state[3][3:] + state[3][:3]
+    return state
 
-def sub_word(word):
-    return [SBOX[(b >> 4) & 0x0F][b & 0x0F] for b in word]
+def mistura_colunas(state):
+    for j in range(4):
+        a = [state[i][j] for i in range(4)] # valores de coluna
+
+        state[0][j] = MULTIPLY2[a[0]] ^ MULTIPLY3[a[1]] ^ a[2] ^ a[3]
+        state[1][j] = a[0] ^ MULTIPLY2[a[1]] ^ MULTIPLY3[a[2]] ^ a[3]
+        state[2][j] = a[0] ^ a[1] ^ MULTIPLY2[a[2]] ^ MULTIPLY3[a[3]]
+        state[3][j] = MULTIPLY3[a[0]] ^ a[1] ^ a[2] ^ MULTIPLY2[a[3]]
+    return state
+
 
 def add_round_key(state, round_key):
     for i in range(4):
@@ -150,17 +152,6 @@ def add_round_key(state, round_key):
     return state
 
 
-plaintext = "0123456789abcdeffedcba9876543210"
-key = "0f1571c947d9e8590cb7add6af7f6798"
-
-def hex_to_bytes(hex_string):
-    return [int(hex_string[i:i+2], 16) for i in range(0, len(hex_string), 2)]
-
-plaintext_bytes = hex_to_bytes(plaintext)
-key_bytes = hex_to_bytes(key)
-
-
-# Função principal de encriptação
 def aes_encrypt(plaintext, key):
     state = [[0] * 4 for _ in range(4)]  # Initialize state 4x4
 
@@ -170,7 +161,7 @@ def aes_encrypt(plaintext, key):
             state[j][i] = plaintext[i * 4 + j] # Fill state with plaintext bytes
 
     # Expand the key
-    key_schedule = key_expansion(key)
+    key_schedule = expansao_chave(key)
 
     # Initial round key addition
     state = add_round_key(state, key_schedule[:4])
@@ -190,8 +181,6 @@ def aes_encrypt(plaintext, key):
 
     return state
 
-# Função para adicionar chave de rodada ao estado
 
-# Exemplo de uso
 ciphertext = aes_encrypt(plaintext_bytes, key_bytes)
 print("Ciphertext:", ciphertext)
