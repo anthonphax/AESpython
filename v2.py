@@ -1,4 +1,5 @@
 import sys
+import numpy as np
 
 __author__ = "Anthon"
 
@@ -9,18 +10,6 @@ RODADAS = 10
 
 plaintext = "0123456789abcdeffedcba9876543210"
 key = "0f1571c947d9e8590cb7add6af7f6798"
-
-def hex_to_bytes(hex_string):
-    return [int(hex_string[i:i+2], 16) for i in range(0, len(hex_string), 2)]
-
-def texto_para_hex(texto):
-    hex_resultado = ''.join(format(ord(caractere), '02x') for caractere in texto)
-    return hex_resultado
-
-plaintext_bytes = hex_to_bytes(plaintext)
-key_bytes = hex_to_bytes(key)
-
-print(plaintext_bytes, key_bytes)
 
 SBOX = [
     [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76],
@@ -92,98 +81,124 @@ RCON_TABLE = [
     [0x36, 0x00, 0x00, 0x00]
 ]
 
-def s_box_subtituicao(state):
-    for i in range(4): #linha
-        for j in range(4): #coluna
-            row = (int(state[i][j]) >> 4) & 0x0F #primeiro nibble do byte
-            col = int(state[i][j]) & 0x0F #segundo nibble do byte
-            print(state, type (state), "da rodada", state[i][j]) #debug
-            state = int(state)
-            state[i][j] = float(state[i][j])
-            state[i][j] = SBOX[row][col]
-    return state
+def hex_string_to_bytes(hex_string):
+    return bytes.fromhex(hex_string)
 
-def rotaciona_palavra(word):
-    return word[1:] + word[:1]
+def bytes_to_hex_string(byte_array):
+    return ''.join(f'{byte:02x}' for byte in byte_array)
 
-def expansao_chave(key):
-    key_schedule = []
-    i = 0
-    # padding chave inicial
-    while i < QT_BLOCOS:
-        key_schedule.append(key[i * 4:(i + 1) * 4])
-        i += 1
+def galois_multiplication(a, b):
+    p = 0
+    for counter in range(8):
+        if (b & 1) == 1:
+            p ^= a
+        hi_bit_set = a & 0x80
+        a <<= 1
+        if hi_bit_set == 0x80:
+            a ^= 0x1b
+        b >>= 1
+    return p
     
-    i = QT_BLOCOS
+def sub_bytes(state):
+    for i in range(16):
+        state[i] = S_BOX[state[i]]
 
-    while i < 4 * (RODADAS + 1):
-        temp = key_schedule[i - 1]
+def inv_sub_bytes(state):
+    for i in range(16):
+        state[i] = S_BOX_INV[state[i]]  # S_BOX_INV should be defined
 
-        if i % QT_BLOCOS == 0:
+def shift_rows(state):
+    state = state.reshape((4, 4))
+    state[1] = np.roll(state[1], -1)
+    state[2] = np.roll(state[2], -2)
+    state[3] = np.roll(state[3], -3)
+    return state.flatten()
 
-            print(type(temp), type(rotaciona_palavra(temp))) #debug
+def inv_shift_rows(state):
+    state = state.reshape((4, 4))
+    state[1] = np.roll(state[1], 1)
+    state[2] = np.roll(state[2], 2)
+    state[3] = np.roll(state[3], 3)
+    return state.flatten()
 
-            temp = s_box_subtituicao(rotaciona_palavra(temp))
-            rcon_index = (i // QT_BLOCOS) - 1
-            temp = [temp[j] ^ RCON_TABLE[rcon_index][j] for j in range(4)]
-        
-        key_schedule.append([key_schedule[i - QT_BLOCOS][j] ^ temp[j] for j in range(4)])
-        i += 1
-    return key_schedule
-
-def rotaciona_linhas(state):
-    state[1] = state[1][1:] + state[1][:1]
-    state[2] = state[2][2:] + state[2][:2]
-    state[3] = state[3][3:] + state[3][:3]
-    return state
-
-def mistura_colunas(state):
-    for j in range(4):
-        a = [state[i][j] for i in range(4)] # valores de coluna
-
-        state[0][j] = MULTIPLY2[a[0]] ^ MULTIPLY3[a[1]] ^ a[2] ^ a[3]
-        state[1][j] = a[0] ^ MULTIPLY2[a[1]] ^ MULTIPLY3[a[2]] ^ a[3]
-        state[2][j] = a[0] ^ a[1] ^ MULTIPLY2[a[2]] ^ MULTIPLY3[a[3]]
-        state[3][j] = MULTIPLY3[a[0]] ^ a[1] ^ a[2] ^ MULTIPLY2[a[3]]
-    return state
-
-
-def add_round_key(state, round_key):
+def mix_columns(state):
+    state = state.reshape((4, 4))
     for i in range(4):
-        for j in range(4):
-            state[i][j] ^= round_key[i][j]
-    return state
+        col = state[:, i]
+        state[0, i] = (galois_multiplication(col[0], 2) ^ galois_multiplication(col[3], 1) ^
+                       galois_multiplication(col[2], 1) ^ galois_multiplication(col[1], 3))
+        state[1, i] = (galois_multiplication(col[1], 2) ^ galois_multiplication(col[0], 1) ^
+                       galois_multiplication(col[3], 1) ^ galois_multiplication(col[2], 3))
+        state[2, i] = (galois_multiplication(col[2], 2) ^ galois_multiplication(col[1], 1) ^
+                       galois_multiplication(col[0], 1) ^ galois_multiplication(col[3], 3))
+        state[3, i] = (galois_multiplication(col[3], 2) ^ galois_multiplication(col[2], 1) ^
+                       galois_multiplication(col[1], 1) ^ galois_multiplication(col[0], 3))
+    return state.flatten()
 
+def inv_mix_columns(state):
+    state = state.reshape((4, 4))
+    for i in range(4):
+        col = state[:, i]
+        state[0, i] = (galois_multiplication(col[0], 14) ^ galois_multiplication(col[3], 9) ^
+                       galois_multiplication(col[2], 13) ^ galois_multiplication(col[1], 11))
+        state[1, i] = (galois_multiplication(col[1], 14) ^ galois_multiplication(col[0], 9) ^
+                       galois_multiplication(col[3], 13) ^ galois_multiplication(col[2], 11))
+        state[2, i] = (galois_multiplication(col[2], 14) ^ galois_multiplication(col[1], 9) ^
+                       galois_multiplication(col[0], 13) ^ galois_multiplication(col[3], 11))
+        state[3, i] = (galois_multiplication(col[3], 14) ^ galois_multiplication(col[2], 9) ^
+                       galois_multiplication(col[1], 13) ^ galois_multiplication(col[0], 11))
+    return state.flatten()
+
+def add_round_key(state, key):
+    return state ^ key
+
+def expand_key(key):
+    # Implement key expansion logic (use the key schedule algorithm)
+    expanded_key = np.zeros((44, 4), dtype=np.uint8)  # 44 words for AES-128
+    # Fill in key expansion logic here
+    return expanded_key.flatten()
 
 def aes_encrypt(plaintext, key):
-    state = [[0] * 4 for _ in range(4)]  # Initialize state 4x4
+    state = np.array(hex_string_to_bytes(plaintext), dtype=np.uint8)
+    key = np.array(hex_string_to_bytes(key), dtype=np.uint8)
 
-    # Fill the state matrix with plaintext
-    for i in range(4):
-        for j in range(4):
-            state[j][i] = plaintext[i * 4 + j] # Fill state with plaintext bytes
+    expanded_key = expand_key(key)
 
-    # Expand the key
-    key_schedule = expansao_chave(key)
+    state = add_round_key(state, key)
 
-    # Initial round key addition
-    state = add_round_key(state, key_schedule[:4])
-
-    # 9 main rounds
-    for round in range(1, RODADAS):
+    for round in range(10):  # Number of rounds
         sub_bytes(state)
-        shift_rows(state)
-        print(f"State before mix_columns: {state}")
-        mix_columns(state)
-        state = add_round_key(state, key_schedule[round * QT_BLOCOS: (round + 1) * QT_BLOCOS])
+        state = shift_rows(state)
+        if round < 9:
+            state = mix_columns(state)
+        state = add_round_key(state, expanded_key[round * 16:(round + 1) * 16])
 
-    # Final round without mix_columns
-    sub_bytes(state)
-    shift_rows(state)
-    state = add_round_key(state, key_schedule[RODADAS * QT_BLOCOS: (RODADAS + 1) * QT_BLOCOS])
+    return bytes_to_hex_string(state)
 
-    return state
+def aes_decrypt(ciphertext, key):
+    state = np.array(hex_string_to_bytes(ciphertext), dtype=np.uint8)
+    key = np.array(hex_string_to_bytes(key), dtype=np.uint8)
 
+    expanded_key = expand_key(key)
 
-ciphertext = aes_encrypt(plaintext, key)
-print("Ciphertext:", ciphertext)
+    state = add_round_key(state, expanded_key[160:])  # Last round key
+
+    for round in range(9, -1, -1):
+        state = inv_shift_rows(state)
+        inv_sub_bytes(state)
+        state = add_round_key(state, expanded_key[round * 16:(round + 1) * 16])
+        if round > 0:
+            state = inv_mix_columns(state)
+
+    return bytes_to_hex_string(state)
+
+# Example usage
+hex_key = "0f1571c947d9e8590cb7add6af7f6798"
+hex_plain_text = "0123456789abcdeffedcba9876543210"
+
+ciphertext = aes_encrypt(hex_plain_text, hex_key)
+print(f"Ciphertext (HEX): {ciphertext}")
+
+# Decryption
+decrypted_text = aes_decrypt(ciphertext, hex_key)
+print(f"Decrypted text (HEX): {decrypted_text}")
